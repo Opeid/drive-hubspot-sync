@@ -3,7 +3,7 @@
 // Paste this entire file into script.google.com
 //
 // SETUP:
-//   1. Run → setupConfig  (enter your PAK and Folder ID when prompted)
+//   1. Gear icon → Script Properties → add HUBSPOT_PAK and FOLDER_ID
 //   2. Run → checkNewFiles once to approve Google permissions
 //   3. Run → createTrigger to auto-run every 5 minutes
 // ============================================================
@@ -12,39 +12,6 @@ var CONFIG = {
   HUBSPOT_PORTAL_ID: '244621034',
   POLL_INTERVAL_MINUTES: 5
 };
-
-// ─── One-time config setup ────────────────────────────────────
-// Run this first to save your credentials as Script Properties
-
-function setupConfig() {
-  var ui = SpreadsheetApp.getUi ? SpreadsheetApp.getUi() : null;
-
-  var pak = PropertiesService.getScriptProperties().getProperty('HUBSPOT_PAK');
-  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
-
-  if (!pak) {
-    pak = promptUser('Enter your HubSpot Personal Access Key (PAK):');
-    if (pak) PropertiesService.getScriptProperties().setProperty('HUBSPOT_PAK', pak.trim());
-  }
-
-  if (!folderId) {
-    folderId = promptUser('Enter your Google Drive Folder ID (from the folder URL):');
-    if (folderId) PropertiesService.getScriptProperties().setProperty('FOLDER_ID', folderId.trim());
-  }
-
-  Logger.log('Config saved. PAK: ' + (pak ? 'set' : 'missing') + ', Folder ID: ' + (folderId || 'missing'));
-}
-
-function promptUser(message) {
-  var ui = SpreadsheetApp.getUi ? SpreadsheetApp.getUi() : null;
-  if (ui) {
-    var result = ui.prompt(message);
-    return result.getResponseText();
-  }
-  // If running standalone (not in Sheets), values must be set manually below:
-  Logger.log('Run from a Google Sheet UI, or set properties manually via Project Settings → Script Properties.');
-  return null;
-}
 
 // ─── Main entry point (called by trigger) ───────────────────
 
