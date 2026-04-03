@@ -13,6 +13,29 @@ var CONFIG = {
   POLL_INTERVAL_MINUTES: 5
 };
 
+// ─── Debug: run this to test contact search ──────────────────
+
+function testSearch() {
+  var token = getHubSpotToken();
+
+  // Search by partial name to see what's actually stored
+  var response = UrlFetchApp.fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({
+      filterGroups: [{
+        filters: [{ propertyName: 'lastname', operator: 'CONTAINS_TOKEN', value: 'cichinelli' }]
+      }],
+      properties: ['firstname', 'lastname'],
+      limit: 5
+    }),
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+
+  Logger.log('Search result: ' + response.getContentText());
+}
+
 // ─── Main entry point (called by trigger) ───────────────────
 
 function checkNewFiles() {
