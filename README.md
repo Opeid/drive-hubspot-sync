@@ -2,78 +2,77 @@
 
 Automatically uploads files placed in a Google Drive folder to the matching HubSpot contact record, matched by first and last name parsed from the filename.
 
+**No server. No Google Cloud Console. No credentials to manage.**
+Runs entirely inside Google Apps Script using your existing Google account.
+
+---
+
 ## How it works
 
-1. A file is added to a watched Google Drive folder.
-2. Google Drive sends a push notification to this server's `/webhook/drive` endpoint.
-3. The server lists files added since the last check.
-4. For each file, the first and last name are extracted from the filename.
-5. The matching HubSpot contact is found by name.
-6. The file is uploaded to HubSpot Files and attached to the contact as a note.
+1. You drop a file into a watched Google Drive folder.
+2. The script (running on Google's servers) checks for new files every 5 minutes.
+3. It parses the filename to extract first and last name.
+4. It searches HubSpot for a contact with that name.
+5. It uploads the file to HubSpot and attaches it to the contact as a note.
+
+---
 
 ## Filename format
 
 The filename must start with `FirstName LastName` (or `FirstName_LastName`). Examples:
 
 ```
-John_Doe_Contract.pdf       → John Doe
-Jane Smith - Proposal.pdf   → Jane Smith
-Robert-Johnson.pdf          → Robert Johnson
+John_Doe_Contract.pdf       → searches for John Doe
+Jane Smith - Proposal.pdf   → searches for Jane Smith
+Robert-Johnson.pdf          → searches for Robert Johnson
 ```
 
-## Setup
+---
 
-### 1. Install dependencies
+## Setup (5 minutes)
 
-```bash
-npm install
+### 1. Open Google Apps Script
+
+Go to [script.google.com](https://script.google.com) → **New project**
+
+### 2. Paste the script
+
+Delete any existing code, then paste the contents of [`apps-script/Code.gs`](apps-script/Code.gs).
+
+### 3. Fill in your config (top of the file)
+
+```js
+var CONFIG = {
+  HUBSPOT_ACCESS_TOKEN: 'your_hubspot_private_app_token_here',
+  FOLDER_ID: 'your_google_drive_folder_id_here',
+};
 ```
 
-### 2. Configure environment
+**HubSpot token:** Settings → Integrations → Private Apps → Create app
+Scopes needed: `crm.objects.contacts.read`, `crm.objects.notes.write`, `files`
 
-```bash
-cp .env.example .env
-```
+**Folder ID:** Open the Drive folder — the ID is in the URL:
+`https://drive.google.com/drive/folders/`**`THIS_PART_IS_THE_ID`**
 
-Fill in:
-- `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` — path to your Google service account JSON key
-- `GOOGLE_DRIVE_FOLDER_ID` — the ID from the Drive folder URL (`/folders/<ID>`)
-- `HUBSPOT_ACCESS_TOKEN` — HubSpot Private App token (needs `crm.objects.contacts.read`, `crm.objects.notes.write`, `files`)
-- `WEBHOOK_URL` — your public server URL (for local dev, use [ngrok](https://ngrok.com))
+### 4. Run once to grant permissions
 
-### 3. Share the Drive folder with the service account
+Click **Run → checkNewFiles**. Google will ask you to approve permissions — click through. This is just your own Google account accessing your own Drive.
 
-In Google Drive, share the folder with the service account email (found in `service-account.json` → `client_email`) with **Viewer** access.
+### 5. Set up the auto-trigger
 
-### 4. Register the Drive webhook
+Click **Run → createTrigger**. This makes the script check for new files every 5 minutes automatically.
 
-```bash
-npm run setup-watch
-```
+That's it. Drop a file in the folder and it will appear on the HubSpot contact within 5 minutes.
 
-This registers a watch on the folder. **Google Drive webhooks expire after 7 days** — re-run this command to renew.
+---
 
-### 5. Start the server
+## Logs
 
-```bash
-# Development (auto-reload)
-npm run dev
+To see what the script is doing:
+**View → Executions** in the Apps Script editor.
 
-# Production
-npm run build && npm start
-```
+---
 
-## Manual sync
+## Alternative: Node.js server (advanced)
 
-To trigger a sync without waiting for a Drive event:
-
-```bash
-curl -X POST http://localhost:3000/sync
-```
-
-## Local development with ngrok
-
-```bash
-ngrok http 3000
-# Copy the https URL into WEBHOOK_URL in .env, then run setup-watch
-```
+If you need real-time webhooks instead of polling, the [`src/`](src/) folder contains a Node.js + TypeScript version that uses Google Drive push notifications. This version requires a Google Cloud service account and a hosted server.
