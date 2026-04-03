@@ -39,20 +39,21 @@ Go to [script.google.com](https://script.google.com) → **New project**
 
 Delete any existing code, then paste the contents of [`apps-script/Code.gs`](apps-script/Code.gs).
 
-### 3. Fill in your config (top of the file)
+### 3. Set your credentials as Script Properties
 
-```js
-var CONFIG = {
-  HUBSPOT_ACCESS_TOKEN: 'your_hubspot_private_app_token_here',
-  FOLDER_ID: 'your_google_drive_folder_id_here',
-};
-```
+In the Apps Script editor: **Project Settings (gear icon) → Script Properties → Add property**
 
-**HubSpot token:** Settings → Integrations → Private Apps → Create app
-Scopes needed: `crm.objects.contacts.read`, `crm.objects.notes.write`, `files`
+Add these two properties:
 
-**Folder ID:** Open the Drive folder — the ID is in the URL:
-`https://drive.google.com/drive/folders/`**`THIS_PART_IS_THE_ID`**
+| Property | Value |
+|---|---|
+| `HUBSPOT_PAK` | Your HubSpot Personal Access Key |
+| `FOLDER_ID` | Your Google Drive folder ID (from the folder URL: `/folders/THIS_PART`) |
+
+**Where to get your HubSpot Personal Access Key:**
+Go to [app.hubspot.com/personal-access-key](https://app.hubspot.com/personal-access-key) → Generate personal access key → copy it.
+
+The script uses this key to automatically generate and refresh API tokens — no private app needed.
 
 ### 4. Run once to grant permissions
 

@@ -3,21 +3,59 @@
 // Paste this entire file into script.google.com
 //
 // SETUP:
-//   1. Fill in HUBSPOT_ACCESS_TOKEN and FOLDER_ID below
-//   2. Click Run → checkNewFiles once (approve permissions)
-//   3. Click Run → createTrigger to auto-run every 5 minutes
+//   1. Run → setupConfig  (enter your PAK and Folder ID when prompted)
+//   2. Run → checkNewFiles once to approve Google permissions
+//   3. Run → createTrigger to auto-run every 5 minutes
 // ============================================================
 
 var CONFIG = {
-  HUBSPOT_ACCESS_TOKEN: 'your_hubspot_private_app_token_here',
-  FOLDER_ID: 'your_google_drive_folder_id_here', // from the folder URL: /folders/<ID>
+  HUBSPOT_PORTAL_ID: '244621034',
   POLL_INTERVAL_MINUTES: 5
 };
+
+// ─── One-time config setup ────────────────────────────────────
+// Run this first to save your credentials as Script Properties
+
+function setupConfig() {
+  var ui = SpreadsheetApp.getUi ? SpreadsheetApp.getUi() : null;
+
+  var pak = PropertiesService.getScriptProperties().getProperty('HUBSPOT_PAK');
+  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
+
+  if (!pak) {
+    pak = promptUser('Enter your HubSpot Personal Access Key (PAK):');
+    if (pak) PropertiesService.getScriptProperties().setProperty('HUBSPOT_PAK', pak.trim());
+  }
+
+  if (!folderId) {
+    folderId = promptUser('Enter your Google Drive Folder ID (from the folder URL):');
+    if (folderId) PropertiesService.getScriptProperties().setProperty('FOLDER_ID', folderId.trim());
+  }
+
+  Logger.log('Config saved. PAK: ' + (pak ? 'set' : 'missing') + ', Folder ID: ' + (folderId || 'missing'));
+}
+
+function promptUser(message) {
+  var ui = SpreadsheetApp.getUi ? SpreadsheetApp.getUi() : null;
+  if (ui) {
+    var result = ui.prompt(message);
+    return result.getResponseText();
+  }
+  // If running standalone (not in Sheets), values must be set manually below:
+  Logger.log('Run from a Google Sheet UI, or set properties manually via Project Settings → Script Properties.');
+  return null;
+}
 
 // ─── Main entry point (called by trigger) ───────────────────
 
 function checkNewFiles() {
-  var folder = DriveApp.getFolderById(CONFIG.FOLDER_ID);
+  var folderId = PropertiesService.getScriptProperties().getProperty('FOLDER_ID');
+  if (!folderId) {
+    Logger.log('[ERROR] FOLDER_ID not set. Run setupConfig() first.');
+    return;
+  }
+
+  var folder = DriveApp.getFolderById(folderId);
   var props = PropertiesService.getScriptProperties();
   var lastChecked = new Date(props.getProperty('lastChecked') || '1970-01-01T00:00:00Z');
   var now = new Date();
@@ -53,7 +91,8 @@ function processFile(file) {
 
   Logger.log('  Parsed name: ' + parsed.firstName + ' ' + parsed.lastName);
 
-  var contact = findContactByName(parsed.firstName, parsed.lastName);
+  var token = getHubSpotToken();
+  var contact = findContactByName(parsed.firstName, parsed.lastName, token);
   if (!contact) {
     Logger.log('  Skipped: no HubSpot contact found for "' + parsed.firstName + ' ' + parsed.lastName + '"');
     return;
@@ -62,11 +101,56 @@ function processFile(file) {
   Logger.log('  Matched contact ID: ' + contact.id);
 
   var blob = getFileBlob(file);
-  var hubspotFileId = uploadFileToHubSpot(blob, filename);
+  var hubspotFileId = uploadFileToHubSpot(blob, filename, token);
   Logger.log('  Uploaded to HubSpot files: ' + hubspotFileId);
 
-  attachFileToContact(contact.id, hubspotFileId, filename);
+  attachFileToContact(contact.id, hubspotFileId, filename, token);
   Logger.log('  Attached to contact. Done.');
+}
+
+// ─── HubSpot token management (auto-refresh via PAK) ─────────
+
+function getHubSpotToken() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('HUBSPOT_ACCESS_TOKEN');
+  var expiresAt = parseInt(props.getProperty('HUBSPOT_TOKEN_EXPIRES_AT') || '0', 10);
+  var now = Date.now();
+
+  // Refresh if expired or expiring within 2 minutes
+  if (!token || now >= expiresAt - 120000) {
+    Logger.log('Refreshing HubSpot access token...');
+    token = refreshHubSpotToken();
+  }
+
+  return token;
+}
+
+function refreshHubSpotToken() {
+  var pak = PropertiesService.getScriptProperties().getProperty('HUBSPOT_PAK');
+  if (!pak) throw new Error('HUBSPOT_PAK not set. Run setupConfig() first.');
+
+  var response = UrlFetchApp.fetch(
+    'https://api.hubapi.com/localdevauth/v1/auth/refresh?portalId=' + CONFIG.HUBSPOT_PORTAL_ID,
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ encodedOAuthRefreshToken: pak }),
+      muteHttpExceptions: true
+    }
+  );
+
+  var data = JSON.parse(response.getContentText());
+
+  if (!data.oauthAccessToken) {
+    throw new Error('Token refresh failed: ' + response.getContentText());
+  }
+
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('HUBSPOT_ACCESS_TOKEN', data.oauthAccessToken);
+  props.setProperty('HUBSPOT_TOKEN_EXPIRES_AT', String(data.expiresAtMillis));
+
+  Logger.log('Token refreshed. Expires: ' + new Date(data.expiresAtMillis).toISOString());
+  return data.oauthAccessToken;
 }
 
 // ─── Parse first/last name from filename ─────────────────────
@@ -110,103 +194,83 @@ function getFileBlob(file) {
 
 // ─── HubSpot: find contact ────────────────────────────────────
 
-function findContactByName(firstName, lastName) {
-  var url = 'https://api.hubapi.com/crm/v3/objects/contacts/search';
-  var payload = {
-    filterGroups: [{
-      filters: [
-        { propertyName: 'firstname', operator: 'EQ', value: firstName },
-        { propertyName: 'lastname',  operator: 'EQ', value: lastName  }
-      ]
-    }],
-    properties: ['firstname', 'lastname'],
-    limit: 1
-  };
-
-  var response = UrlFetchApp.fetch(url, {
+function findContactByName(firstName, lastName, token) {
+  var response = UrlFetchApp.fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
     method: 'post',
     contentType: 'application/json',
-    payload: JSON.stringify(payload),
-    headers: { Authorization: 'Bearer ' + CONFIG.HUBSPOT_ACCESS_TOKEN },
+    payload: JSON.stringify({
+      filterGroups: [{
+        filters: [
+          { propertyName: 'firstname', operator: 'EQ', value: firstName },
+          { propertyName: 'lastname',  operator: 'EQ', value: lastName  }
+        ]
+      }],
+      properties: ['firstname', 'lastname'],
+      limit: 1
+    }),
+    headers: { Authorization: 'Bearer ' + token },
     muteHttpExceptions: true
   });
 
   var data = JSON.parse(response.getContentText());
-
-  if (data.results && data.results.length > 0) {
-    return data.results[0];
-  }
-
-  return null;
+  return (data.results && data.results.length > 0) ? data.results[0] : null;
 }
 
 // ─── HubSpot: upload file ─────────────────────────────────────
 
-function uploadFileToHubSpot(blob, filename) {
-  var url = 'https://api.hubapi.com/files/v3/files';
-
-  var response = UrlFetchApp.fetch(url, {
+function uploadFileToHubSpot(blob, filename, token) {
+  var response = UrlFetchApp.fetch('https://api.hubapi.com/files/v3/files', {
     method: 'post',
     payload: {
       file: blob,
       folderPath: '/drive-sync',
       options: JSON.stringify({ access: 'PRIVATE' })
     },
-    headers: { Authorization: 'Bearer ' + CONFIG.HUBSPOT_ACCESS_TOKEN },
+    headers: { Authorization: 'Bearer ' + token },
     muteHttpExceptions: true
   });
 
   var data = JSON.parse(response.getContentText());
-
-  if (!data.id) {
-    throw new Error('HubSpot file upload failed: ' + response.getContentText());
-  }
-
+  if (!data.id) throw new Error('HubSpot file upload failed: ' + response.getContentText());
   return data.id;
 }
 
 // ─── HubSpot: create note + associate with contact ────────────
 
-function attachFileToContact(contactId, hubspotFileId, filename) {
-  // 1. Create a note referencing the file
-  var noteUrl = 'https://api.hubapi.com/crm/v3/objects/notes';
-  var notePayload = {
-    properties: {
-      hs_note_body: 'Document synced from Google Drive: ' + filename + ' (File ID: ' + hubspotFileId + ')',
-      hs_timestamp: new Date().toISOString()
-    }
-  };
-
-  var noteResponse = UrlFetchApp.fetch(noteUrl, {
+function attachFileToContact(contactId, hubspotFileId, filename, token) {
+  // 1. Create a note
+  var noteResponse = UrlFetchApp.fetch('https://api.hubapi.com/crm/v3/objects/notes', {
     method: 'post',
     contentType: 'application/json',
-    payload: JSON.stringify(notePayload),
-    headers: { Authorization: 'Bearer ' + CONFIG.HUBSPOT_ACCESS_TOKEN },
+    payload: JSON.stringify({
+      properties: {
+        hs_note_body: 'Document synced from Google Drive: ' + filename + ' (File ID: ' + hubspotFileId + ')',
+        hs_timestamp: new Date().toISOString()
+      }
+    }),
+    headers: { Authorization: 'Bearer ' + token },
     muteHttpExceptions: true
   });
 
   var note = JSON.parse(noteResponse.getContentText());
+  if (!note.id) throw new Error('Failed to create note: ' + noteResponse.getContentText());
 
-  if (!note.id) {
-    throw new Error('Failed to create HubSpot note: ' + noteResponse.getContentText());
-  }
-
-  // 2. Associate the note with the contact
-  var assocUrl = 'https://api.hubapi.com/crm/v4/objects/notes/' + note.id + '/associations/contacts/' + contactId;
-  UrlFetchApp.fetch(assocUrl, {
-    method: 'put',
-    contentType: 'application/json',
-    payload: JSON.stringify([{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }]),
-    headers: { Authorization: 'Bearer ' + CONFIG.HUBSPOT_ACCESS_TOKEN },
-    muteHttpExceptions: true
-  });
+  // 2. Associate note with contact
+  UrlFetchApp.fetch(
+    'https://api.hubapi.com/crm/v4/objects/notes/' + note.id + '/associations/contacts/' + contactId,
+    {
+      method: 'put',
+      contentType: 'application/json',
+      payload: JSON.stringify([{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }]),
+      headers: { Authorization: 'Bearer ' + token },
+      muteHttpExceptions: true
+    }
+  );
 }
 
 // ─── Trigger setup ────────────────────────────────────────────
-// Run this once from the editor to set up auto-polling
 
 function createTrigger() {
-  // Remove any existing triggers for this function
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
     if (trigger.getHandlerFunction() === 'checkNewFiles') {
       ScriptApp.deleteTrigger(trigger);
