@@ -1,73 +1,51 @@
 # Drive → HubSpot Sync
 
-Automatically uploads files placed in a Google Drive folder to the matching HubSpot contact record, matched by first and last name parsed from the filename. The file appears as a note with attachment on the contact's activity timeline.
+Automatically syncs files from a Google Drive folder to the matching HubSpot contact record. No manual uploads, no copy-pasting — drop a file in the folder and it appears on the contact within 5 minutes.
 
 ---
 
-## How it works
+## What it does
 
-1. You drop a file into a watched Google Drive folder.
-2. The script (running on Google's servers) checks for new files every 5 minutes.
-3. It parses the filename to extract first and last name.
-4. It searches HubSpot for a contact with that name.
-5. It uploads the file to HubSpot Files.
-6. It creates a note on the contact's activity timeline with the file attached.
+### File detection
+The script runs every 5 minutes via a Google Apps Script time-based trigger. It checks a designated Google Drive folder for any files added since the last run.
 
----
-
-## Filename format
-
-The filename must start with `FirstName LastName`. Examples:
+### Name matching
+The contact is identified by parsing the filename. The first two words of the filename are treated as the first and last name:
 
 ```
-John_Doe_Contract.pdf       → searches for John Doe
-Jane Smith - Proposal.pdf   → searches for Jane Smith
-Robert-Johnson.pdf          → searches for Robert Johnson
+Ronald Cichinelli.pdf       → looks up Ronald Cichinelli
+John_Doe_Contract.pdf       → looks up John Doe
+Jane Smith - Proposal.pdf   → looks up Jane Smith
 ```
 
----
+The search handles several ways names can be stored in HubSpot:
+- Standard `firstname` + `lastname` fields
+- Full name stored in the `firstname` field (e.g. " Ronald Cichinelli")
+- Partial last name match as a fallback
 
-## Setup
+### File upload
+Once the contact is found, the file is uploaded to HubSpot's File Manager under the `/drive-sync` folder.
 
-### 1. Create a HubSpot Private App
+### Contact attachment
+A note is created on the contact's activity timeline with the file attached. The file also appears in the **Attachments** panel on the contact record.
 
-1. In HubSpot go to **Settings → Integrations → Private Apps → Create legacy app**
-2. Name it **Drive Sync**
-3. Under **Scopes**, add:
-   - `crm.objects.contacts.read`
-   - `crm.objects.contacts.write`
-   - `files`
-4. Click **Create app** and copy the `pat-...` token
-
-### 2. Open Google Apps Script
-
-Go to [script.google.com](https://script.google.com) → **New project**
-
-### 3. Paste the script
-
-Delete any existing code and paste the contents of [`apps-script/Code.gs`](apps-script/Code.gs).
-
-### 4. Add Script Properties
-
-Click the **gear icon → Project Settings → Script Properties → Add property** and add:
-
-| Property | Value |
-|---|---|
-| `HUBSPOT_TOKEN` | `pat-...` token from your private app |
-| `FOLDER_ID` | Your Google Drive folder ID (from the folder URL: `/folders/THIS_PART`) |
-
-### 5. Run once to approve permissions
-
-Select **`checkNewFiles`** from the function dropdown and click **Run**. Google will ask you to approve permissions — click through.
-
-### 6. Set up the auto-trigger
-
-Select **`createTrigger`** and click **Run**. The script will now check for new files every 5 minutes automatically.
+### Google Doc export
+If the file is a native Google format (Docs, Sheets, Slides), it is automatically exported as a PDF before uploading.
 
 ---
 
-## That's it
+## Stack
 
-Drop a file in the folder — within 5 minutes it will appear as a note with attachment on the matching HubSpot contact record.
+- **Google Apps Script** — runs inside Google's infrastructure, no server needed
+- **Google Drive API** — accessed via the script's built-in OAuth (no credentials to manage)
+- **HubSpot CRM API** — authenticated via a private app token stored in Script Properties
 
-To check logs: **View → Executions** in the Apps Script editor.
+---
+
+## Logs
+
+To see what the script is doing or debug any issues:
+
+**View → Executions** in the [Apps Script editor](https://script.google.com)
+
+Each run logs which files were processed, which contacts were matched, and any skipped files with the reason.
