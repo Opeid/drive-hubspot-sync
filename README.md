@@ -1,9 +1,6 @@
 # Drive → HubSpot Sync
 
-Automatically uploads files placed in a Google Drive folder to the matching HubSpot contact record, matched by first and last name parsed from the filename.
-
-**No server. No Google Cloud Console. No credentials to manage.**
-Runs entirely inside Google Apps Script using your existing Google account.
+Automatically uploads files placed in a Google Drive folder to the matching HubSpot contact record, matched by first and last name parsed from the filename. The file appears as a note with attachment on the contact's activity timeline.
 
 ---
 
@@ -13,13 +10,14 @@ Runs entirely inside Google Apps Script using your existing Google account.
 2. The script (running on Google's servers) checks for new files every 5 minutes.
 3. It parses the filename to extract first and last name.
 4. It searches HubSpot for a contact with that name.
-5. It uploads the file to HubSpot and attaches it to the contact as a note.
+5. It uploads the file to HubSpot Files.
+6. It creates a note on the contact's activity timeline with the file attached.
 
 ---
 
 ## Filename format
 
-The filename must start with `FirstName LastName` (or `FirstName_LastName`). Examples:
+The filename must start with `FirstName LastName`. Examples:
 
 ```
 John_Doe_Contract.pdf       → searches for John Doe
@@ -29,51 +27,47 @@ Robert-Johnson.pdf          → searches for Robert Johnson
 
 ---
 
-## Setup (5 minutes)
+## Setup
 
-### 1. Open Google Apps Script
+### 1. Create a HubSpot Private App
+
+1. In HubSpot go to **Settings → Integrations → Private Apps → Create legacy app**
+2. Name it **Drive Sync**
+3. Under **Scopes**, add:
+   - `crm.objects.contacts.read`
+   - `crm.objects.contacts.write`
+   - `files`
+4. Click **Create app** and copy the `pat-...` token
+
+### 2. Open Google Apps Script
 
 Go to [script.google.com](https://script.google.com) → **New project**
 
-### 2. Paste the script
+### 3. Paste the script
 
-Delete any existing code, then paste the contents of [`apps-script/Code.gs`](apps-script/Code.gs).
+Delete any existing code and paste the contents of [`apps-script/Code.gs`](apps-script/Code.gs).
 
-### 3. Set your credentials as Script Properties
+### 4. Add Script Properties
 
-In the Apps Script editor: **Project Settings (gear icon) → Script Properties → Add property**
-
-Add these two properties:
+Click the **gear icon → Project Settings → Script Properties → Add property** and add:
 
 | Property | Value |
 |---|---|
-| `HUBSPOT_PAK` | Your HubSpot Personal Access Key |
+| `HUBSPOT_TOKEN` | `pat-...` token from your private app |
 | `FOLDER_ID` | Your Google Drive folder ID (from the folder URL: `/folders/THIS_PART`) |
 
-**Where to get your HubSpot Personal Access Key:**
-Go to [app.hubspot.com/personal-access-key](https://app.hubspot.com/personal-access-key) → Generate personal access key → copy it.
+### 5. Run once to approve permissions
 
-The script uses this key to automatically generate and refresh API tokens — no private app needed.
+Select **`checkNewFiles`** from the function dropdown and click **Run**. Google will ask you to approve permissions — click through.
 
-### 4. Run once to grant permissions
+### 6. Set up the auto-trigger
 
-Click **Run → checkNewFiles**. Google will ask you to approve permissions — click through. This is just your own Google account accessing your own Drive.
-
-### 5. Set up the auto-trigger
-
-Click **Run → createTrigger**. This makes the script check for new files every 5 minutes automatically.
-
-That's it. Drop a file in the folder and it will appear on the HubSpot contact within 5 minutes.
+Select **`createTrigger`** and click **Run**. The script will now check for new files every 5 minutes automatically.
 
 ---
 
-## Logs
+## That's it
 
-To see what the script is doing:
-**View → Executions** in the Apps Script editor.
+Drop a file in the folder — within 5 minutes it will appear as a note with attachment on the matching HubSpot contact record.
 
----
-
-## Alternative: Node.js server (advanced)
-
-If you need real-time webhooks instead of polling, the [`src/`](src/) folder contains a Node.js + TypeScript version that uses Google Drive push notifications. This version requires a Google Cloud service account and a hosted server.
+To check logs: **View → Executions** in the Apps Script editor.
