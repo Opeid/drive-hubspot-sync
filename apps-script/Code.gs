@@ -185,25 +185,51 @@ function getFileBlob(file) {
 // ─── HubSpot: find contact ────────────────────────────────────
 
 function findContactByName(firstName, lastName, token) {
-  var response = UrlFetchApp.fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify({
-      filterGroups: [{
-        filters: [
-          { propertyName: 'firstname', operator: 'EQ', value: firstName },
-          { propertyName: 'lastname',  operator: 'EQ', value: lastName  }
-        ]
-      }],
-      properties: ['firstname', 'lastname'],
-      limit: 1
-    }),
-    headers: { Authorization: 'Bearer ' + token },
-    muteHttpExceptions: true
-  });
+  var fullName = firstName + ' ' + lastName;
 
-  var data = JSON.parse(response.getContentText());
-  return (data.results && data.results.length > 0) ? data.results[0] : null;
+  // Try 3 strategies to handle different ways names are stored in HubSpot:
+  var searches = [
+    // 1. Standard: separate firstname + lastname fields
+    { filterGroups: [{ filters: [
+      { propertyName: 'firstname', operator: 'EQ', value: firstName },
+      { propertyName: 'lastname',  operator: 'EQ', value: lastName  }
+    ]}]},
+    // 2. Full name crammed into firstname (e.g. " Ronald Cichinelli")
+    { filterGroups: [{ filters: [
+      { propertyName: 'firstname', operator: 'CONTAINS_TOKEN', value: firstName },
+      { propertyName: 'firstname', operator: 'CONTAINS_TOKEN', value: lastName  }
+    ]}]},
+    // 3. Last name only search as fallback
+    { filterGroups: [{ filters: [
+      { propertyName: 'lastname', operator: 'CONTAINS_TOKEN', value: lastName }
+    ]}]}
+  ];
+
+  for (var i = 0; i < searches.length; i++) {
+    var response = UrlFetchApp.fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(Object.assign(searches[i], { properties: ['firstname', 'lastname'], limit: 5 })),
+      headers: { Authorization: 'Bearer ' + token },
+      muteHttpExceptions: true
+    });
+
+    var data = JSON.parse(response.getContentText());
+    if (data.results && data.results.length > 0) {
+      // For multi-result fallback searches, verify the name matches
+      for (var j = 0; j < data.results.length; j++) {
+        var p = data.results[j].properties;
+        var storedName = ((p.firstname || '') + ' ' + (p.lastname || '')).toLowerCase().replace(/\s+/g, ' ').trim();
+        var searchName = fullName.toLowerCase();
+        if (storedName.indexOf(firstName.toLowerCase()) !== -1 && storedName.indexOf(lastName.toLowerCase()) !== -1) {
+          Logger.log('  Found via strategy ' + (i + 1) + ': ' + p.firstname + ' ' + p.lastname);
+          return data.results[j];
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 // ─── HubSpot: upload file ─────────────────────────────────────
