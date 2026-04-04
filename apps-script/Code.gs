@@ -254,30 +254,26 @@ function uploadFileToHubSpot(blob, filename, token) {
 // ─── HubSpot: create note + associate with contact ────────────
 
 function attachFileToContact(contactId, hubspotFileId, filename, token) {
-  // Use the v1 engagements API (works with PAK tokens)
-  var response = UrlFetchApp.fetch('https://api.hubapi.com/engagements/v1/engagements', {
+  // Append a record of the uploaded file to the contact's description field
+  var response = UrlFetchApp.fetch('https://api.hubapi.com/contacts/v1/contact/vid/' + contactId + '/profile', {
     method: 'post',
     contentType: 'application/json',
     payload: JSON.stringify({
-      engagement: {
-        active: true,
-        type: 'NOTE',
-        timestamp: new Date().getTime()
-      },
-      associations: {
-        contactIds: [parseInt(contactId, 10)]
-      },
-      metadata: {
-        body: 'Document synced from Google Drive: ' + filename + ' (HubSpot File ID: ' + hubspotFileId + ')'
-      }
+      properties: [
+        {
+          property: 'description',
+          value: 'File synced from Google Drive on ' + new Date().toLocaleDateString() + ': ' + filename + ' (HubSpot File ID: ' + hubspotFileId + ')'
+        }
+      ]
     }),
     headers: { Authorization: 'Bearer ' + token },
     muteHttpExceptions: true
   });
 
-  var data = JSON.parse(response.getContentText());
-  if (!data.engagement || !data.engagement.id) {
-    throw new Error('Failed to create engagement: ' + response.getContentText());
+  // 204 = success, no body
+  var code = response.getResponseCode();
+  if (code !== 204) {
+    Logger.log('  Warning: could not update contact description: ' + response.getContentText());
   }
 }
 
