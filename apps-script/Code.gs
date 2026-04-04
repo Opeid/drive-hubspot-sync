@@ -176,26 +176,37 @@ function uploadFileToHubSpot(blob, filename, token) {
   return data.id;
 }
 
-// ─── HubSpot: attach file to contact via contact update ───────
+// ─── HubSpot: create note on contact timeline ────────────────
 
 function attachFileToContact(contactId, hubspotFileId, filename, token) {
-  var response = UrlFetchApp.fetch('https://api.hubapi.com/contacts/v1/contact/vid/' + contactId + '/profile', {
+  // 1. Create a note
+  var noteRes = UrlFetchApp.fetch('https://api.hubapi.com/crm/v3/objects/notes', {
     method: 'post',
     contentType: 'application/json',
     payload: JSON.stringify({
-      properties: [{
-        property: 'hs_content_membership_notes',
-        value: 'File synced from Google Drive on ' + new Date().toLocaleDateString() + ': ' + filename + ' (HubSpot File ID: ' + hubspotFileId + ')'
-      }]
+      properties: {
+        hs_note_body: 'Document synced from Google Drive: ' + filename + ' (HubSpot File ID: ' + hubspotFileId + ')',
+        hs_timestamp: new Date().toISOString()
+      }
     }),
     headers: { Authorization: 'Bearer ' + token },
     muteHttpExceptions: true
   });
 
-  var code = response.getResponseCode();
-  if (code !== 204) {
-    Logger.log('  Warning: could not update contact: ' + response.getContentText());
-  }
+  var note = JSON.parse(noteRes.getContentText());
+  if (!note.id) throw new Error('Failed to create note: ' + noteRes.getContentText());
+
+  // 2. Associate note with contact
+  UrlFetchApp.fetch(
+    'https://api.hubapi.com/crm/v4/objects/notes/' + note.id + '/associations/contacts/' + contactId,
+    {
+      method: 'put',
+      contentType: 'application/json',
+      payload: JSON.stringify([{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }]),
+      headers: { Authorization: 'Bearer ' + token },
+      muteHttpExceptions: true
+    }
+  );
 }
 
 // ─── Trigger setup ────────────────────────────────────────────
