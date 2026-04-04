@@ -185,8 +185,9 @@ function attachFileToContact(contactId, hubspotFileId, filename, token) {
     contentType: 'application/json',
     payload: JSON.stringify({
       properties: {
-        hs_note_body: 'Document synced from Google Drive: ' + filename + ' (HubSpot File ID: ' + hubspotFileId + ')',
-        hs_timestamp: new Date().toISOString()
+        hs_note_body: 'Document synced from Google Drive: ' + filename,
+        hs_timestamp: new Date().toISOString(),
+        hs_attachment_ids: hubspotFileId
       }
     }),
     headers: { Authorization: 'Bearer ' + token },
