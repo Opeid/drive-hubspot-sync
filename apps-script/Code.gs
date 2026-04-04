@@ -254,34 +254,31 @@ function uploadFileToHubSpot(blob, filename, token) {
 // ─── HubSpot: create note + associate with contact ────────────
 
 function attachFileToContact(contactId, hubspotFileId, filename, token) {
-  // 1. Create a note
-  var noteResponse = UrlFetchApp.fetch('https://api.hubapi.com/crm/v3/objects/notes', {
+  // Use the v1 engagements API (works with PAK tokens)
+  var response = UrlFetchApp.fetch('https://api.hubapi.com/engagements/v1/engagements', {
     method: 'post',
     contentType: 'application/json',
     payload: JSON.stringify({
-      properties: {
-        hs_note_body: 'Document synced from Google Drive: ' + filename + ' (File ID: ' + hubspotFileId + ')',
-        hs_timestamp: new Date().toISOString()
+      engagement: {
+        active: true,
+        type: 'NOTE',
+        timestamp: new Date().getTime()
+      },
+      associations: {
+        contactIds: [parseInt(contactId, 10)]
+      },
+      metadata: {
+        body: 'Document synced from Google Drive: ' + filename + ' (HubSpot File ID: ' + hubspotFileId + ')'
       }
     }),
     headers: { Authorization: 'Bearer ' + token },
     muteHttpExceptions: true
   });
 
-  var note = JSON.parse(noteResponse.getContentText());
-  if (!note.id) throw new Error('Failed to create note: ' + noteResponse.getContentText());
-
-  // 2. Associate note with contact
-  UrlFetchApp.fetch(
-    'https://api.hubapi.com/crm/v4/objects/notes/' + note.id + '/associations/contacts/' + contactId,
-    {
-      method: 'put',
-      contentType: 'application/json',
-      payload: JSON.stringify([{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }]),
-      headers: { Authorization: 'Bearer ' + token },
-      muteHttpExceptions: true
-    }
-  );
+  var data = JSON.parse(response.getContentText());
+  if (!data.engagement || !data.engagement.id) {
+    throw new Error('Failed to create engagement: ' + response.getContentText());
+  }
 }
 
 // ─── Trigger setup ────────────────────────────────────────────
