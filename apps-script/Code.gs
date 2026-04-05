@@ -29,21 +29,36 @@ function checkNewFiles() {
     return;
   }
 
-  var folder = DriveApp.getFolderById(folderId);
+  var parentFolder = DriveApp.getFolderById(folderId);
   var props = PropertiesService.getScriptProperties();
   var lastChecked = new Date(props.getProperty('lastChecked') || '1970-01-01T00:00:00Z');
   var now = new Date();
+  var processed = 0;
 
   Logger.log('Checking for files created after: ' + lastChecked.toISOString());
 
-  var files = folder.getFiles();
-  var processed = 0;
-
+  // Check files directly in the parent folder (no doc type label)
+  var files = parentFolder.getFiles();
   while (files.hasNext()) {
     var file = files.next();
     if (file.getDateCreated() > lastChecked) {
-      processFile(file);
+      processFile(file, null);
       processed++;
+    }
+  }
+
+  // Check subfolders — use subfolder name as the document type label
+  var subfolders = parentFolder.getFolders();
+  while (subfolders.hasNext()) {
+    var subfolder = subfolders.next();
+    var docType = subfolder.getName();
+    var subFiles = subfolder.getFiles();
+    while (subFiles.hasNext()) {
+      var subFile = subFiles.next();
+      if (subFile.getDateCreated() > lastChecked) {
+        processFile(subFile, docType);
+        processed++;
+      }
     }
   }
 
@@ -53,9 +68,9 @@ function checkNewFiles() {
 
 // ─── Process a single file ───────────────────────────────────
 
-function processFile(file) {
+function processFile(file, docType) {
   var filename = file.getName();
-  Logger.log('Processing: ' + filename);
+  Logger.log('Processing: ' + filename + (docType ? ' [' + docType + ']' : ''));
 
   var parsed = parseNameFromFilename(filename);
   if (!parsed) {
@@ -74,9 +89,13 @@ function processFile(file) {
 
   Logger.log('  Matched contact ID: ' + contact.id);
 
-  var blob = getFileBlob(file);
-  var hubspotFilename = parsed.hubspotFilename;
+  var ext = (filename.match(/\.[^/.]+$/) || ['.pdf'])[0];
+  var hubspotFilename = docType
+    ? docType + ' - ' + parsed.firstName + ' ' + parsed.lastName + ext
+    : parsed.firstName + ' ' + parsed.lastName + ext;
+
   Logger.log('  Uploading as: ' + hubspotFilename);
+  var blob = getFileBlob(file);
   var hubspotFileId = uploadFileToHubSpot(blob, hubspotFilename, token);
   Logger.log('  Uploaded to HubSpot files: ' + hubspotFileId);
 
@@ -87,27 +106,12 @@ function processFile(file) {
 // ─── Parse first/last name from filename ─────────────────────
 
 function parseNameFromFilename(filename) {
-  var ext = (filename.match(/\.[^/.]+$/) || ['.pdf'])[0];
   var base = filename.replace(/\.[^/.]+$/, '').trim();
   var tokens = base.split(/[\s_\-]+/).filter(function(t) {
     return /^[a-zA-Z]{2,}$/.test(t);
   });
   if (tokens.length < 2) return null;
-
-  var firstName = capitalize(tokens[0]);
-  var lastName = capitalize(tokens[1]);
-
-  // Everything after the first two words becomes the document type label
-  // e.g. "Ronald Cichinelli Intent to Seize" → docType = "Intent to Seize"
-  var docType = tokens.slice(2).join(' ');
-
-  // Build the HubSpot filename: "Intent to Seize - Ronald Cichinelli.pdf"
-  // If no doc type in filename, just use "Ronald Cichinelli.pdf"
-  var hubspotFilename = docType
-    ? docType + ' - ' + firstName + ' ' + lastName + ext
-    : firstName + ' ' + lastName + ext;
-
-  return { firstName: firstName, lastName: lastName, hubspotFilename: hubspotFilename };
+  return { firstName: capitalize(tokens[0]), lastName: capitalize(tokens[1]) };
 }
 
 function capitalize(str) {
