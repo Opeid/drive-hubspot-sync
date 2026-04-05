@@ -75,22 +75,39 @@ function processFile(file) {
   Logger.log('  Matched contact ID: ' + contact.id);
 
   var blob = getFileBlob(file);
-  var hubspotFileId = uploadFileToHubSpot(blob, filename, token);
+  var hubspotFilename = parsed.hubspotFilename;
+  Logger.log('  Uploading as: ' + hubspotFilename);
+  var hubspotFileId = uploadFileToHubSpot(blob, hubspotFilename, token);
   Logger.log('  Uploaded to HubSpot files: ' + hubspotFileId);
 
-  attachFileToContact(contact.id, hubspotFileId, filename, token);
+  attachFileToContact(contact.id, hubspotFileId, hubspotFilename, token);
   Logger.log('  Attached to contact. Done.');
 }
 
 // ─── Parse first/last name from filename ─────────────────────
 
 function parseNameFromFilename(filename) {
+  var ext = (filename.match(/\.[^/.]+$/) || ['.pdf'])[0];
   var base = filename.replace(/\.[^/.]+$/, '').trim();
   var tokens = base.split(/[\s_\-]+/).filter(function(t) {
     return /^[a-zA-Z]{2,}$/.test(t);
   });
   if (tokens.length < 2) return null;
-  return { firstName: capitalize(tokens[0]), lastName: capitalize(tokens[1]) };
+
+  var firstName = capitalize(tokens[0]);
+  var lastName = capitalize(tokens[1]);
+
+  // Everything after the first two words becomes the document type label
+  // e.g. "Ronald Cichinelli Intent to Seize" → docType = "Intent to Seize"
+  var docType = tokens.slice(2).join(' ');
+
+  // Build the HubSpot filename: "Intent to Seize - Ronald Cichinelli.pdf"
+  // If no doc type in filename, just use "Ronald Cichinelli.pdf"
+  var hubspotFilename = docType
+    ? docType + ' - ' + firstName + ' ' + lastName + ext
+    : firstName + ' ' + lastName + ext;
+
+  return { firstName: firstName, lastName: lastName, hubspotFilename: hubspotFilename };
 }
 
 function capitalize(str) {
@@ -160,6 +177,7 @@ function findContactByName(firstName, lastName, token) {
 // ─── HubSpot: upload file ─────────────────────────────────────
 
 function uploadFileToHubSpot(blob, filename, token) {
+  blob = blob.setName(filename);
   var response = UrlFetchApp.fetch('https://api.hubapi.com/files/v3/files', {
     method: 'post',
     payload: {
