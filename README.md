@@ -20,10 +20,20 @@ HubSpot Sync/                          ← FOLDER_ID points here
   └── Ronald Cichinelli.pdf            ← no subfolder = no label
 ```
 
-### 2. File detection
+### 2. How staff use it
+
+1. Name the document after the client (e.g. `Ronald Cichinelli.pdf`)
+2. Drop it into the relevant subfolder in Google Drive (e.g. `Intent to Seize`, `Tax Return`, `Power of Attorney`)
+3. Within 5 minutes the document is automatically filed under the client's record in HubSpot — no further action needed
+
+**What appears in HubSpot:** The document shows up on the client's activity timeline as a note with the file attached, named by document type and client:
+
+`Intent to Seize - Ronald Cichinelli.pdf`
+
+### 3. File detection
 A Google Apps Script time-based trigger runs every 5 minutes. It checks the parent folder and all subfolders for files added since the last run.
 
-### 3. Name matching
+### 4. Name matching
 The contact is identified by parsing the filename. The first two alphabetic words are treated as first name and last name — everything else in the filename is ignored:
 
 ```
